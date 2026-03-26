@@ -1,0 +1,9 @@
+# Clojure
+.calva/
+.clj-kondo/
+.cpcache/
+.lsp/
+.nrepl-port
+
+# Visual Studio Code
+*.code-workspace
