@@ -44,7 +44,7 @@
   (into {} (map #(identity [% nil])
                 (apply h/cartesian-product (map range grid-limits)))))
 
-;;; Examples
+;;; Examples.
 ;; One-dimensional grid of length 2.
 (cell-grid [2])
 ;; Two-dimensional 2-by-3 grid.
@@ -58,7 +58,7 @@
   (map #(mod % x-max)
        (range (- x r) (inc (+ x r)))))
 
-;;; Examples
+;;; Examples.
 (modular-interval 1 3 1)
 (modular-interval 1 3 0)
 (modular-interval 2 5 1)
@@ -75,7 +75,7 @@
         coords (apply h/cartesian-product coord-ranges)]
     (cons p (remove #(= p %) coords))))
 
-;;; Examples
+;;; Examples.
 ;; Radius-2 neighbors of [1] on a length-3 grid.
 (moore-neighbors 2 [3] [1])
 ;; Radius-1 neighbors of [1 1] on a 3-by-3 grid.
