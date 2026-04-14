@@ -5,14 +5,24 @@
             [grid-draw :as gd]
             [quil.core :as q]
             [quil.middleware :as m]))
+          
 
-(def grid-limits [10 10])
+(def grid-limits [100 100])
+
 
 (def init-grid
   (h/map-keys
    (ca/cell-grid grid-limits)
    (fn [p]
+     (rand-nth [true false]))))
+
+"
+(def init-grid
+  (h/map-keys
+   (ca/cell-grid grid-limits)
+   (fn [p]
      (contains? #{[1 0] [2 1] [0 2] [1 2] [2 2]} p))))
+ "
 
 (def neighbors (partial ca/moore-neighbors 1 grid-limits))
 

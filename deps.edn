@@ -1,2 +1,2 @@
-{:paths ["src"]
+{:paths ["src" "examples"]
  :deps {quil/quil {:mvn/version "4.3.1563"}}}
