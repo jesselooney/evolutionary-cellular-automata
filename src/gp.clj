@@ -72,9 +72,19 @@
 (defn evolve [{:keys [evaluate-fn select-fn terminals max-length pop-size
                        generations mutation-rate]}]
   (let [terminals (vec terminals)
-        select    (or select-fn lexicase-select)]
-    (loop [population (mapv (fn [_] (evaluate-fn (random-program terminals max-length)))
-                            (range pop-size))
+        select    (or select-fn lexicase-select)
+        make-offspring (fn [population]
+                         (if (< (rand) mutation-rate)
+                           (mutate terminals
+                                   (:program (select population))
+                                   max-length)
+                           (crossover
+                            (:program (select population))
+                            (:program (select population))
+                            max-length)))]
+    (loop [population (vec (pmap evaluate-fn
+                                 (repeatedly pop-size
+                                             #(random-program terminals max-length))))
            gen 0
            best-ever nil]
       (let [gen-best (apply max-key :fitness population)
@@ -87,16 +97,7 @@
                          :program (:program best)}))
         (if (>= gen generations)
           best
-          (let [new-pop
-                (into [best]
-                      (map (fn [_]
-                             (if (< (rand) mutation-rate)
-                               (evaluate-fn (mutate terminals
-                                                    (:program (select population))
-                                                    max-length))
-                               (evaluate-fn (crossover
-                                             (:program (select population))
-                                             (:program (select population))
-                                             max-length))))
-                           (range (dec pop-size))))]
+          (let [offspring (repeatedly (dec pop-size)
+                                     #(make-offspring population))
+                new-pop  (into [best] (pmap evaluate-fn offspring))]
             (recur new-pop (inc gen) best)))))))

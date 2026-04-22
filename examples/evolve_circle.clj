@@ -37,7 +37,7 @@
   (vec (concat (keys instruction-set)
                [0 1 2 3])))
 
-(def max-push-steps 100)
+(def max-push-steps 300)
 
 (defn make-neighborhood-value [program]
   (fn [neighbor-values]
@@ -50,18 +50,17 @@
             final-state (gp/execute-state-limited parser init-state max-push-steps)]
         (boolean (p/peek-stack final-state :bool))))))
 
-(def solid-square
-  #{[-1 -1] [0 -1] [1 -1]
-    [-1  0] [0  0] [1  0]
-    [-1  1] [0  1] [1  1]})
+(defn von-neumann-neighbors [grid-limits p]
+  (let [[x y] p
+        [x-max y-max] grid-limits]
+    (cons p [[(mod (dec x) x-max) y]
+             [(mod (inc x) x-max) y]
+             [x (mod (dec y) y-max)]
+             [x (mod (inc y) y-max)]])))
 
-(defn make-target-pattern [grid-limits center offsets]
-  (let [alive (set (map (fn [[dx dy]]
-                          [(+ (first center) dx)
-                           (+ (second center) dy)])
-                        offsets))]
-    (h/map-keys (ca/cell-grid grid-limits)
-                (fn [p] (contains? alive p)))))
+(defn make-checkerboard [grid-limits]
+  (h/map-keys (ca/cell-grid grid-limits)
+              (fn [[x y]] (even? (+ x y)))))
 
 (defn make-initial-grid [grid-limits center]
   (h/map-keys (ca/cell-grid grid-limits)
@@ -75,13 +74,13 @@
         union (count (set/union a-set b-set))]
     (if (zero? union) 0.0 (/ (double inter) (double union)))))
 
-(def grid-limits [15 15])
-(def center [7 7])
+(def grid-limits [10 10])
+(def center [5 5])
 (def ca-steps 20)
 
-(def target (make-target-pattern grid-limits center solid-square))
+(def target (make-checkerboard grid-limits))
 (def init-grid (make-initial-grid grid-limits center))
-(def neighbors (partial ca/moore-neighbors 1 grid-limits))
+(def neighbors (partial von-neumann-neighbors grid-limits))
 
 (def cell-keys (vec (keys target)))
 (def target-cells (set (filter #(get target %) cell-keys)))
@@ -95,28 +94,33 @@
   (/ (double (max 0 (- (alive-count grid) target-size)))
      (- total-cells target-size)))
 
+(defn target-errors-at [grid]
+  (mapv (fn [k] (if (= (boolean (get grid k))
+                        (boolean (get target k)))
+                  0 1))
+        cell-keys))
+
 (defn evaluate-program [program]
   (let [neighborhood-value (make-neighborhood-value program)
         step       (partial ca/cells-next-value neighbors neighborhood-value)
         grids      (vec (take (inc ca-steps) (iterate step init-grid)))
         final-grid (peek grids)
-        cell-errors (mapv (fn [k] (if (= (boolean (get final-grid k))
-                                         (boolean (get target k)))
-                                    0 1))
-                          cell-keys)
-        step-errors (mapv expansion-error (rest grids))
-        errors      (into cell-errors step-errors)]
+        prev-grid  (grids (dec ca-steps))
+        errors (-> (target-errors-at final-grid)
+                   (into (target-errors-at prev-grid))
+                   (into (mapv expansion-error (rest grids))))]
     {:program program
      :errors  errors
-     :fitness (iou final-grid target)}))
+     :fitness (min (iou final-grid target)
+                   (iou prev-grid target))}))
 
 (defn run-evolution []
   (gp/evolve {:evaluate-fn  evaluate-program
               :terminals    terminals
               :max-length   20
-              :pop-size     300
+              :pop-size     100
               :generations  50
-              :mutation-rate 0.75}))
+              :mutation-rate 0.3}))
 
 (defn visualize [program]
   (let [neighborhood-value (make-neighborhood-value program)]

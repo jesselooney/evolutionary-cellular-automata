@@ -9,3 +9,7 @@
 *.code-workspace
 
 # TESTING
+
+# Local
+notes.txt
+evolved-img-vids/
