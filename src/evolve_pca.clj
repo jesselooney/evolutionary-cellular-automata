@@ -87,6 +87,13 @@
   (apply min-key :error
          (repeatedly tournament-size #(rand-nth population))))
 
+(defn lexicase
+  [population]
+  (let [errors-count (count (:errors (first population)))
+        ordering (shuffle (range errors-count))]
+    (first (sort-by #(vec (h/reorder ordering (:errors %)))
+                    population))))
+
 ;;; Generation transformers
 
 (defn select-mutate

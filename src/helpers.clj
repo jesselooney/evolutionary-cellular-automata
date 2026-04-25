@@ -57,3 +57,23 @@
 
 ;;; Examples.
 (modular-vector-sum [3 3 5] [1 2 2] [1 2 2])
+
+(defn reorder
+  [ordering coll]
+  (for [i ordering] (nth coll i)))
+
+;;; Examples.
+(reorder [2 1 0] [1 2 3])
+(reorder [0 2 1] [1 2 3])
+
+(defn bool-to-int [x] (if x 1 0))
+
+;;; Examples.
+(bool-to-int false)
+(bool-to-int true)
+
+(defn bit-seq [n] (for [i (range)] (bit-test n i)))
+
+;;; Examples.
+(take 4 (bit-seq 0))
+(take 4 (bit-seq 5))
