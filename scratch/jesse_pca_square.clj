@@ -130,6 +130,8 @@
     :size [500 500]
     :setup (partial gd/grid-setup init-grid)
     :update (partial ca/cells-next-value cell-neighbors
-                     (partial push-nv '(N0 4 0 < N2 N1 N6 min N1 N3 N7 * not == + N4 == 4 or not if)))
+                     (partial push-nv '(N4 N0 6 * if 2 N2 min 0 + *)))
     :draw (partial gd/grid-draw-8color grid-limits)
     :middleware [m/fun-mode])
+    
+
