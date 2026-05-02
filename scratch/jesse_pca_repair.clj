@@ -77,14 +77,30 @@
   [cells]
   (let [center (rand-nth (keys cells))
         victims (set (ca/moore-neighbors 1 grid-limits center))]
-    (map (fn [[p v]] (if (contains? victims p) 7 v)) cells)))
+    (into {} (map (fn [[p v]] [p (if (contains? victims p) 7 v)]) cells))))
+
+(rand-damage init-grid)
 
 (defn program-errors-counts
   [program]
   (let [cell-states (iterate (partial ca/cells-next-value
                                       cell-neighbors
                                       (partial push-nv program)) init-grid)]
-    (map (partial grid-errors-count target-grid) (take 10 (drop 10 cell-states)))))
+    (map (partial grid-errors-count target-grid) (take 15 (drop 5 cell-states)))))
+
+(defn program-errors-damage
+  [program]
+  (let [regular-update (partial ca/cells-next-value
+                                cell-neighbors
+                                (partial push-nv program))
+        updates (apply concat (repeat 7 [regular-update regular-update rand-damage]))
+        cell-states (reduce #(conj %1 (%2 (last %1))) [init-grid] updates)]
+    (map (partial grid-errors-count target-grid) (take 15 (drop 5 cell-states)))))
+
+
+(reduce #(conj %1 (%2 (last %1))) [1] [inc inc dec inc])
+
+(program-errors-damage '(4 N6 N3 N8 N1 min N0 min min min))
 
 #_(ev/evolve
    (partial ev/select-mutate
@@ -92,17 +108,58 @@
             (partial ev/umad rand-term))
    program-errors-counts
    h/mean
-   20
+   30
+   (repeatedly 128 rand-program))
+
+#_(ev/evolve
+   (partial ev/select-mutate
+            ev/lexicase
+            (partial ev/umad rand-term))
+   program-errors-damage
+   h/mean
+   30
    (repeatedly 128 rand-program))
 
 ; (N6 == N3 if N3 not + min N0 N1 min *)
 ; (N6 == N6 1 N8 N1 N0 N3 min min)
+; (4 N6 N3 N8 N1 min N0 min min min)
+
+
+
+(defn mouse-draw
+  [[i-max j-max] cells]
+  (let [cell-width (/ (q/width) i-max)
+        cell-height (/ (q/height) j-max)
+        i (math/floor-div (q/mouse-x) cell-width)
+        j (math/floor-div (q/mouse-y) cell-height)]
+    (if (q/mouse-pressed?)
+      (into {} (map (fn [[p v]] [p (if (= p [i j]) 0 v)]) cells))
+      cells)))
+
+(defn update-with-deletions
+  [[i-max j-max] update-fn cells]
+  (let [cell-width (/ (q/width) i-max)
+        cell-height (/ (q/height) j-max)
+        i (math/floor-div (q/mouse-x) cell-width)
+        j (math/floor-div (q/mouse-y) cell-height)]
+    (if (q/mouse-pressed?)
+      (into {} (map (fn [[p v]] [p (if (= p [i j]) 7 v)]) cells))
+      (update-fn cells))))
+
+#_(q/defsketch sketch
+    :size [500 500]
+    :setup (partial gd/grid-setup init-grid)
+    :update (partial update-with-deletions grid-limits
+                     (partial ca/cells-next-value cell-neighbors
+                              (partial push-nv '(6 N0 7 * 2 N7 N1 4 < + N6 0 0 < N0 N6 N1 4 N1 == min min))))
+    :draw (partial gd/grid-draw-8color grid-limits)
+    :middleware [m/fun-mode])
 
 #_(q/defsketch sketch
     :size [500 500]
     :setup (partial gd/grid-setup init-grid)
     :update (partial ca/cells-next-value cell-neighbors
-                     (partial push-nv '(* N2 1 N4 < 3 N7 if *)))
+                     (partial push-nv '(6 N0 7 * 2 N7 N1 4 < + N6 0 0 < N0 N6 N1 4 N1 == min min)))
     :draw (partial gd/grid-draw-8color grid-limits)
     :middleware [m/fun-mode])
     
