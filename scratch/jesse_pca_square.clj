@@ -1,4 +1,4 @@
-(ns jesse_pca_square
+(ns jesse-pca-square
   (:require [clojure.math :as math]
             [cellular-automata :as ca]
             [evolve-pca :as ev]
