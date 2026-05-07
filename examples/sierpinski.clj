@@ -61,34 +61,27 @@
   (ev/mean-cells-error init-grid cell-neighbors 20 5 cells-error
                        (partial push-nv program)))
 
-#_(ev/evolve
-   (partial ev/elitist-select-mutate
-            (partial ev/tournament 2)
-            (partial ev/umad rand-term)
-            1)
-   program-error
-   identity
-   20
-   (repeatedly 128 rand-program))
+;;;; Run evolution
 
-#_(ev/evolve
-   (partial ev/elitist-select-crossover-mutate
-            (partial ev/tournament 2)
-            ev/one-point-crossover
-            (partial ev/umad rand-term)
-            4)
-   program-error
-   identity
-   20
-   (repeatedly 128 rand-program))
+#_(def result
+    (ev/evolve
+     (partial ev/elitist-select-mutate
+              (partial ev/tournament 2)
+              (partial ev/umad rand-term)
+              1)
+     program-error
+     identity
+     20
+     (repeatedly 128 rand-program)))
 
-;; Found via evolution.
-(def sierpinski-program '(true true N6 and N1 and N1 not N1 or N2 nand nor N1 N8 N2 N1 xor N8 N0 N5 or))
 
-#_(q/defsketch sketch
-  :size [500 500]
-  :setup (partial gd/grid-setup init-grid)
-  :update (partial ca/cells-next-value cell-neighbors
-                   (partial push-nv sierpinski-program))
-  :draw (partial gd/grid-draw grid-limits)
-  :middleware [m/fun-mode])
+;;;; Visualize the best evolved program
+
+#_(let [best-program (:program (apply min-key :error result))]
+    (q/defsketch sierpinski-sketch
+      :size [500 500]
+      :setup (partial gd/grid-setup init-grid)
+      :update (partial ca/cells-next-value cell-neighbors
+                       (partial push-nv best-program))
+      :draw (partial gd/grid-draw grid-limits)
+      :middleware [m/fun-mode]))

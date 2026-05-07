@@ -1,0 +1,4 @@
+edn_format
+matplotlib
+numpy
+scipy
