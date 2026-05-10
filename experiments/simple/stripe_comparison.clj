@@ -38,14 +38,14 @@
 (def cell-neighbors
   (partial ca/von-neumann-neighbors 1 grid-limits))
 
-;; fraction of cells not matching target (0.0 = perfect)
+;; fraction of cells not matching target
 (defn grid-error
   [cells]
   (let [total (count cells)
         correct (count (filter (fn [[k v]] (= v (get target-grid k))) cells))]
     (- 1.0 (/ (double correct) total))))
 
-;; run a neighborhood-value fn for n-steps, return error metrics
+;; run neighborhood-value fn for n-steps, return error metrics
 (defn evaluate-rule
   [neighborhood-value n-steps]
   (let [step-fn (partial ca/cells-next-value cell-neighbors neighborhood-value)
@@ -80,7 +80,7 @@
         hi (:pca-program-max config)]
     (repeatedly (+ lo (rand-int (- hi lo))) rand-term)))
 
-;; evaluate a Push program as a CA neighborhood rule
+;; Push program as CA neighborhood rule
 (defn push-nv
   [program neighbor-values]
   (let [parser (p/make-simple-parser
@@ -92,7 +92,7 @@
 (defn pca-evaluate [program]
   (evaluate-rule (partial push-nv program) (:ca-steps config)))
 
-;; evaluate a CPPN genome as a CA neighborhood rule
+;; CPPN genome as CA neighborhood rule
 (defn cppn-nv
   [genome neighbor-values]
   (let [inputs (mapv #(cppn/normalize-state % 2) neighbor-values)
@@ -102,7 +102,7 @@
 (defn nca-evaluate [genome]
   (evaluate-rule (partial cppn-nv genome) (:ca-steps config)))
 
-;; one PCA evolution, returning per-generation records
+;; one PCA evolution run
 (defn run-pca
   [run-idx]
   (let [{:keys [population-size generation-limit elite-count tournament-size]} config
@@ -133,7 +133,7 @@
                             select mutate elite-count population)]
             (recur (inc gen) (vec next-progs) history')))))))
 
-;; one NCA evolution, returning per-generation records
+;; one NCA evolution run
 (defn run-nca
   [run-idx]
   (let [{:keys [population-size generation-limit elite-count tournament-size]} config]
@@ -166,7 +166,6 @@
                             elite-count config population)]
             (recur (inc gen) (vec next-gens) history')))))))
 
-;; save PCA and NCA run results to EDN
 (defn save-results!
   [pca-runs nca-runs filename]
   (let [strip (fn [record] (dissoc record :best-program :best-genome))
@@ -192,7 +191,6 @@
     (spit filename (pr-str data))
     (println (str "Results saved to " filename))))
 
-;; run n-runs of PCA and NCA, aggregate, and save
 (defn run-experiment!
   ([] (run-experiment! (:n-runs config)))
   ([n-runs]

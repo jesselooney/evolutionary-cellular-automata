@@ -26,7 +26,7 @@
 
 (def out-dir "experiments/local_patterns/visualize/")
 
-;; render a boolean grid to a BufferedImage
+;; render boolean grid to BufferedImage
 (defn render-grid
   [grid [w h] cell-size & {:keys [title] :or {title nil}}]
   (let [title-height (if title 30 0)
@@ -60,12 +60,11 @@
     (.dispose g)
     img))
 
-;; write a BufferedImage to a PNG file
 (defn save-image! [^BufferedImage img path]
   (ImageIO/write img "png" (File. ^String path))
   (println (str "Saved: " path)))
 
-;; render each pattern as an individual PNG
+;; individual pattern PNGs
 (defn render-individual-patterns! []
   (doseq [{:keys [name target-fn]} patterns]
     (let [grid (er/make-target-grid grid-limits target-fn)
@@ -73,7 +72,7 @@
           path (str out-dir name ".png")]
       (save-image! img path))))
 
-;; render all patterns in a combined grid layout PNG
+;; combined grid layout PNG
 (defn render-layout! []
   (let [ncols   3
         nrows   (int (Math/ceil (/ (count patterns) ncols)))

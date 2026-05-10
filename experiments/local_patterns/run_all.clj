@@ -26,9 +26,9 @@
 
 (def base-config
   {:grid-limits        [10 10]
-   :population-size    150
+   :population-size    200
    :generation-limit   50
-   :ca-steps           20
+   :ca-steps           30
    :fitness-window     10
    :elite-count        2
    :n-runs             10
@@ -44,9 +44,9 @@
    :compatibility-threshold 0.9
    :c1                   1.0
    :c3                   0.4
-   :crossover-rate       0.75})
+   :crossover-rate       0.75
+   :num-signals          3})
 
-;; per-pattern config with init grid, target grid, and neighbors
 (defn make-condition-config [pattern]
   (let [grid-limits (:grid-limits base-config)
         target-grid (er/make-target-grid grid-limits (:target-fn pattern))]
@@ -58,7 +58,7 @@
 (def results-file
   "experiments/local_patterns/results/local_patterns_results.edn")
 
-;; PCA vs NCA comparison across all locally-solvable patterns
+;; PCA vs NCA vs Hybrid across locally-solvable patterns
 (defn run-experiment!
   ([] (run-experiment! (:n-runs base-config)))
   ([n-runs]
@@ -70,8 +70,9 @@
              cfg       (make-condition-config pattern)
              condition (er/run-condition!
                         (:name pattern) cfg
-                        {:pca  er/run-pca-crossover
-                         :nca  er/run-nca-crossover}
+                        {:pca    er/run-pca-crossover
+                         :nca    er/run-nca-crossover
+                         :hybrid er/run-hybrid-crossover}
                         n-runs)
              completed' (conj completed condition)]
          (er/save-results! "local-patterns" base-config completed'

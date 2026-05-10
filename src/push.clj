@@ -127,6 +127,7 @@
           (fn [term]
             (cond (symbol? term) (symbol-parser term)
                   (boolean? term) (make-constant-instruction term :bool)
+                  (float? term)   (make-constant-instruction term :float)
                   (integer? term) (make-constant-instruction term :int)
                   (string? term) (make-constant-instruction term :str)))]
       (map term-parser program))))

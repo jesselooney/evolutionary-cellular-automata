@@ -1,41 +1,43 @@
 (ns generalization
   (:require [cellular-automata :as ca]
-            [experiment-runner :as er]))
+            [experiment-runner :as er]
+            [clojure.edn :as edn]))
 
 (def patterns
   [{:name "checkerboard"
     :target-fn (fn [[x y] _ _] (even? (+ x y)))}
    {:name "vertical-stripes"
     :target-fn (fn [[x _] _ _] (even? x))}
+   {:name "horizontal-stripes"
+    :target-fn (fn [[_ y] _ _] (even? y))}
    {:name "sparse-dots"
-    :target-fn (fn [[x y] _ _] (and (even? x) (even? y)))}])
+    :target-fn (fn [[x y] _ _] (and (even? x) (even? y)))}
+   {:name "dense-dots"
+    :target-fn (fn [[x y] _ _] (or (even? x) (even? y)))}
+   {:name "wide-stripes"
+    :target-fn (fn [[x _] _ _] (< (mod x 4) 2))}])
 
-(def train-grid [10 10])
 (def test-grids [[15 15] [20 20] [25 25]])
 
-(def base-config
-  {:grid-limits        train-grid
-   :population-size    150
-   :generation-limit   50
-   :ca-steps           20
-   :fitness-window     10
-   :elite-count        2
-   :n-runs             10
-   :fitness-transform  :ca-neat
-   :pca-program-min    5
-   :pca-program-max    20
-   :num-neighbors      5
-   :num-inputs         5
-   :num-outputs        2
-   :weight-mutation-rate 0.6
-   :add-connection-rate  0.15
-   :add-node-rate        0.10
-   :compatibility-threshold 0.9
-   :c1                   1.0
-   :c3                   0.4
-   :crossover-rate       0.75})
+(def local-patterns-file
+  "experiments/local_patterns/results/local_patterns_results.edn")
 
-;; evaluate a rule on a different grid size for generalization
+(def results-file
+  "experiments/generalization/results/generalization_results.edn")
+
+;; extract best-rules per condition from local patterns results
+(defn load-best-rules [filename]
+  (let [data (edn/read-string (slurp filename))]
+    (into {}
+      (for [condition (:conditions data)]
+        [(:name condition)
+         (into {}
+           (for [method [:pca :nca :hybrid]
+                 :let [method-data (get condition method)]
+                 :when method-data]
+             [method (:best-rules method-data)]))]))))
+
+;; evaluate a rule on a different grid size
 (defn test-generalization
   [rule-fn target-fn grid-limits ca-steps]
   (let [init-grid      (er/make-init-grid grid-limits)
@@ -44,107 +46,74 @@
     (er/evaluate-rule init-grid cell-neighbors target-grid
                       rule-fn ca-steps)))
 
-;; best PCA program tested on all test grids
-(defn generalize-pca-run
-  [history target-fn ca-steps]
-  (let [best-record (apply min-key :best-error history)
-        best-prog   (:best-program best-record)
-        rule-fn     (partial er/push-nv best-prog)]
-    {:train-error (:best-error best-record)
-     :results
-     (mapv (fn [grid-size]
-             (let [result (test-generalization rule-fn target-fn grid-size ca-steps)]
-               {:grid-size grid-size
-                :min-error (float (:min-error result))
-                :best-step (:best-step result)}))
-           test-grids)}))
+;; test one rule on all test grids
+(defn- generalize-on-grids [rule-fn target-fn ca-steps train-error]
+  {:train-error train-error
+   :results
+   (mapv (fn [grid-size]
+           (let [result (test-generalization rule-fn target-fn grid-size ca-steps)]
+             {:grid-size grid-size
+              :min-error (float (:min-error result))
+              :best-step (:best-step result)}))
+         test-grids)})
 
-;; best NCA genome tested on all test grids
-(defn generalize-nca-run
-  [history target-fn ca-steps]
-  (let [best-record (apply min-key :best-error history)
-        best-genome (:best-genome best-record)
-        rule-fn     (partial er/cppn-nv best-genome)]
-    {:train-error (:best-error best-record)
-     :results
-     (mapv (fn [grid-size]
-             (let [result (test-generalization rule-fn target-fn grid-size ca-steps)]
-               {:grid-size grid-size
-                :min-error (float (:min-error result))
-                :best-step (:best-step result)}))
-           test-grids)}))
+;; build rule-fn from best-rule record by method type
+(defn- make-rule-fn [method best-rule num-signals]
+  (case method
+    :pca    (partial er/push-nv (:best-program best-rule))
+    :nca    (partial er/cppn-nv (:best-genome best-rule))
+    :hybrid (let [genome (:best-genome best-rule)]
+              (partial er/hybrid-nv (:cppn genome) (:program genome) num-signals))))
 
-(def results-file
-  "experiments/generalization/results/generalization_results.edn")
+;; generalize all runs of one method on one pattern
+(defn generalize-method-runs
+  [method best-rules target-fn ca-steps num-signals]
+  (mapv (fn [best-rule]
+          (let [rule-fn (make-rule-fn method best-rule num-signals)]
+            (generalize-on-grids rule-fn target-fn ca-steps (:error best-rule))))
+        best-rules))
 
-;; evolve one pattern, then test generalization
-(defn run-and-generalize!
-  [pattern config n-runs]
-  (let [{:keys [name target-fn]} pattern
-        ca-steps (:ca-steps config)
-        _        (println (str "\n=== Condition: " name " ==="))
-        _        (println "  Running pca...")
-        pca-runs (mapv #(er/run-pca-crossover config %) (range n-runs))
-        pca-gen  (mapv #(generalize-pca-run % target-fn ca-steps) pca-runs)
-        _        (println "  Running nca...")
-        nca-runs (mapv #(er/run-nca-crossover config %) (range n-runs))
-        nca-gen  (mapv #(generalize-nca-run % target-fn ca-steps) nca-runs)]
-    {:name    name
-     :config  config
-     :methods {:pca pca-runs
-               :nca nca-runs}
-     :generalization {:pca pca-gen
-                      :nca nca-gen}}))
-
-;; save results with generalization data, stripping programs/genomes
 (defn save-generalization-results!
-  [experiment-name base-config conditions filename]
-  (let [strip (fn [record] (dissoc record :best-program :best-genome))
-        process-runs (fn [runs]
-                       (let [all  (apply concat runs)
-                             best (apply min-key :best-error all)]
-                         {:runs         (mapv #(mapv strip %) runs)
-                          :best-overall {:error      (:best-error best)
-                                         :generation (:generation best)
-                                         :step       (:best-step best)}}))]
-    (spit filename
-          (pr-str {:experiment   experiment-name
-                   :timestamp    (str (java.time.Instant/now))
-                   :base-config  (dissoc base-config
-                                         :init-grid :target-grid :cell-neighbors)
-                   :train-grid   train-grid
-                   :test-grids   test-grids
-                   :conditions
-                   (mapv (fn [{:keys [name methods generalization]}]
-                           (merge {:name name}
-                                  (into {} (for [[mk runs] methods]
-                                             [mk (process-runs runs)]))
-                                  {:generalization generalization}))
-                         conditions)}))
-    (println (str "Results saved to " filename))))
+  [source-config conditions filename]
+  (spit filename
+        (pr-str {:experiment  "generalization"
+                 :timestamp   (str (java.time.Instant/now))
+                 :source-file local-patterns-file
+                 :source-config source-config
+                 :test-grids  test-grids
+                 :conditions  conditions}))
+  (println (str "Results saved to " filename)))
 
-;; full generalization experiment across all patterns
+;; run generalization tests using best rules from local_patterns
 (defn run-experiment!
-  ([] (run-experiment! (:n-runs base-config)))
-  ([n-runs]
-   (loop [remaining  patterns
-          completed  []]
-     (if (empty? remaining)
-       completed
-       (let [pattern   (first remaining)
-             cfg       (let [grid-limits (:grid-limits base-config)
-                             target-grid (er/make-target-grid grid-limits
-                                           (:target-fn pattern))]
-                         (merge base-config
-                                {:init-grid      (er/make-init-grid grid-limits)
-                                 :target-grid    target-grid
-                                 :cell-neighbors (partial ca/von-neumann-neighbors
-                                                          1 grid-limits)}))
-             condition  (run-and-generalize! pattern cfg n-runs)
-             completed' (conj completed condition)]
-         (save-generalization-results! "generalization" base-config completed'
-                                       results-file)
-         (recur (rest remaining) completed'))))))
+  ([] (run-experiment! 3))
+  ([num-signals]
+   (println "Loading best rules from local_patterns results...")
+   (let [all-best-rules (load-best-rules local-patterns-file)
+         source-config  (:base-config (edn/read-string (slurp local-patterns-file)))
+         ca-steps       (or (:ca-steps source-config) 30)]
+     (loop [remaining patterns
+            completed []]
+       (if (empty? remaining)
+         completed
+         (let [pattern    (first remaining)
+               pat-name   (:name pattern)
+               target-fn  (:target-fn pattern)
+               pat-rules  (get all-best-rules pat-name)
+               _          (println (str "\n=== Condition: " pat-name " ==="))
+               gen-results
+               (into {}
+                 (for [method [:pca :nca :hybrid]
+                       :let [rules (get pat-rules method)]
+                       :when rules]
+                   (do (println (str "  Testing " (name method)
+                                     " (" (count rules) " rules)..."))
+                       [method (generalize-method-runs
+                                 method rules target-fn ca-steps num-signals)])))
+               condition  {:name pat-name :generalization gen-results}
+               completed' (conj completed condition)]
+           (save-generalization-results! source-config completed' results-file)
+           (recur (rest remaining) completed')))))))
 
 
 (run-experiment!)

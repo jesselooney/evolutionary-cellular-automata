@@ -7,13 +7,8 @@ import edn_format
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# EDN loading
-# ---------------------------------------------------------------------------
-
-
+# convert edn_format types to plain Python
 def _convert(obj):
-    """Recursively convert edn_format types to plain Python types."""
     if isinstance(obj, edn_format.Keyword):
         return obj.name
     if isinstance(obj, edn_format.Symbol):
@@ -26,26 +21,13 @@ def _convert(obj):
 
 
 def load_edn(path):
-    """Load an EDN file and return plain Python dicts/lists."""
     with open(path) as f:
         raw = edn_format.loads(f.read())
     return _convert(raw)
 
 
-# ---------------------------------------------------------------------------
-# Array conversion
-# ---------------------------------------------------------------------------
-
-
+# list-of-runs -> per-generation numpy arrays
 def runs_to_arrays(runs):
-    """Convert list-of-runs into per-generation numpy arrays.
-
-    Returns:
-        gens:        1-d array [0, 1, ..., max_gen]
-        avg_errors:  (n_runs, n_gens)
-        best_errors: (n_runs, n_gens)
-        best_steps:  (n_runs, n_gens)
-    """
     n_runs = len(runs)
     max_len = max(len(r) for r in runs)
 
@@ -66,23 +48,20 @@ def runs_to_arrays(runs):
     return np.arange(max_len), avg_errors, best_errors, best_steps
 
 
+# pad 2-d array along axis=1 using edge values
 def pad_to(arr, length):
-    """Pad a 2-d array along axis=1 to `length` using edge values."""
     if arr.shape[1] >= length:
         return arr
     pad_width = length - arr.shape[1]
     return np.pad(arr, ((0, 0), (0, pad_width)), mode="edge")
 
 
-# ---------------------------------------------------------------------------
-# Method data extraction
-# ---------------------------------------------------------------------------
-
 METHOD_COLORS = {
-    "pca": "tab:blue",
-    "nca": "tab:orange",
-    "nca-local": "tab:orange",
+    "pca": "tab:orange",
+    "nca": "tab:blue",
+    "nca-local": "tab:blue",
     "nca-position": "tab:green",
+    "hybrid": "tab:green",
 }
 
 METHOD_LABELS = {
@@ -90,20 +69,17 @@ METHOD_LABELS = {
     "nca": "NCA (NEAT)",
     "nca-local": "NCA-local",
     "nca-position": "NCA-position",
+    "hybrid": "HyCA",
 }
 
 
 def get_method_keys(condition):
-    """Return the method keys present in a condition dict."""
     skip = {"name", "config-overrides"}
     return [k for k in condition if k not in skip]
 
 
+# extract arrays for each method in a condition
 def extract_method_arrays(condition):
-    """Extract (gens, best, avg, steps) arrays for each method in a condition.
-
-    Returns dict of {method_key: (gens, avg, best, steps)}.
-    """
     result = {}
     for mk in get_method_keys(condition):
         gens, avg, best, steps = runs_to_arrays(condition[mk]["runs"])
@@ -111,16 +87,7 @@ def extract_method_arrays(condition):
     return result
 
 
-# ---------------------------------------------------------------------------
-# Plotting: error curves (per-condition)
-# ---------------------------------------------------------------------------
-
-
 def plot_error_curves(gens, method_data, out_path, title=None):
-    """Plot best-error and avg-error over generations for multiple methods.
-
-    method_data: dict of {method_key: (best_2d, avg_2d)}
-    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
     for ax, metric_idx, subtitle in [
@@ -148,16 +115,7 @@ def plot_error_curves(gens, method_data, out_path, title=None):
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Plotting: best step
-# ---------------------------------------------------------------------------
-
-
 def plot_best_step(gens, method_data, out_path, title=None):
-    """Plot CA step of best individual over generations.
-
-    method_data: dict of {method_key: steps_2d}
-    """
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for mk, steps in method_data.items():
@@ -178,19 +136,8 @@ def plot_best_step(gens, method_data, out_path, title=None):
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Plotting: grouped bar comparison
-# ---------------------------------------------------------------------------
-
-
 def plot_bar_comparison(condition_names, method_means, method_stds, out_path,
                         ylabel="Final Best Error", title=None):
-    """Grouped bar chart comparing a metric across conditions and methods.
-
-    condition_names: list of str
-    method_means:  dict of {method_key: array of means (one per condition)}
-    method_stds:   dict of {method_key: array of stds (one per condition)}
-    """
     n_conditions = len(condition_names)
     n_methods = len(method_means)
     x = np.arange(n_conditions)
@@ -218,14 +165,8 @@ def plot_bar_comparison(condition_names, method_means, method_stds, out_path,
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Plotting: line comparison (for scaling experiments)
-# ---------------------------------------------------------------------------
-
-
 def plot_line_comparison(x_values, x_label, method_means, method_stds, out_path,
                          ylabel="Final Best Error", title=None):
-    """Line plot comparing a metric across a numeric axis for multiple methods."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for mk in method_means:
@@ -248,13 +189,7 @@ def plot_line_comparison(x_values, x_label, method_means, method_stds, out_path,
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Summary printing
-# ---------------------------------------------------------------------------
-
-
 def print_condition_summary(condition, n_runs=None):
-    """Print summary stats for one condition."""
     name = condition["name"]
     print(f"\n  --- {name} ---")
 
@@ -290,7 +225,6 @@ def print_condition_summary(condition, n_runs=None):
 
 
 def print_experiment_summary(data):
-    """Print full experiment summary."""
     cfg = data.get("base-config", data.get("config", {}))
     conditions = data["conditions"]
 

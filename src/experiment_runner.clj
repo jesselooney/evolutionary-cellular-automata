@@ -1,6 +1,7 @@
 (ns experiment-runner
   (:require [cellular-automata :as ca]
             [cppn :as cppn]
+            [evolve-hybrid :as eh]
             [evolve-pca :as ev]
             [evolve-neat :as en]
             [helpers :as h]
@@ -99,6 +100,37 @@
                (ev/neighbor-terms n-neighbors)
                [true false])))
 
+;;;; Hybrid PCA-NCA definitions.
+
+;; Float instructions for hybrid Push programs
+(def hybrid-float-definitions
+  {'float> (p/make-instruction > [:float :float] :bool)
+   'float< (p/make-instruction < [:float :float] :bool)
+   'float+ (p/make-instruction + [:float :float] :float)
+   'float- (p/make-instruction - [:float :float] :float)
+   'float* (p/make-instruction * [:float :float] :float)
+   'float-div (p/make-instruction
+              (fn [a b] (if (zero? b) 0.0 (/ a b)))
+              [:float :float] :float)
+   'float>0 (p/make-instruction #(> (double %) 0.0) [:float] :bool)})
+
+;; Combined definitions for hybrid Push programs (boolean + float ops)
+(def hybrid-definitions
+  (merge pca-definitions hybrid-float-definitions))
+
+;; Float threshold constants available as evolvable terms
+(def hybrid-float-literals
+  [0.0 0.25 0.5 0.75 1.0 -0.5 -1.0])
+
+;; Term set for hybrid Push programs
+(defn make-hybrid-terms
+  [n-neighbors num-signals]
+  (vec (concat (keys hybrid-definitions)
+               (ev/neighbor-terms n-neighbors)
+               (for [i (range num-signals)] (symbol (format "S%d" i)))
+               [true false]
+               hybrid-float-literals)))
+
 ;; evaluate a Push program as a CA neighborhood rule
 (defn push-nv
   [program neighbor-values]
@@ -148,6 +180,57 @@
         (let [nbr-vals (map grid (cell-neighbors cell-key))]
           (cppn-nv-with-pos genome grid-limits cell-key nbr-vals))))))
 
+;;;; Hybrid evaluation functions.
+
+;; Two-stage hybrid evaluator: CPPN produces k signals, Push consumes them.
+;; Stage A: CPPN takes normalized neighbor values -> k continuous signals.
+;; Stage B: Push program runs with neighbor bools + named signal terms S0..S(k-1).
+(defn hybrid-nv
+  [cppn program num-signals neighbor-values]
+  (let [inputs  (mapv #(cppn/normalize-state % 2) neighbor-values)
+        outputs (cppn/evaluate-cppn cppn inputs)
+        signals (vec (take num-signals outputs))
+        sig-parser (into {} (for [[i v] (map-indexed vector signals)]
+                              [(symbol (format "S%d" i))
+                               (p/make-constant-instruction v :float)]))
+        parser  (p/make-simple-parser
+                  (merge hybrid-definitions
+                         (ev/neighbor-term-parser :bool neighbor-values)
+                         sig-parser))
+        init-state {:exec [program] :bool [] :float []}
+        final-state (p/execute-state parser init-state)]
+    (or (p/peek-stack final-state :bool) false)))
+
+;; Position-aware hybrid: CPPN takes neighbors + normalized (x, y) -> k signals
+(defn hybrid-nv-with-pos
+  [cppn program num-signals grid-limits [x y] neighbor-values]
+  (let [state-inputs (mapv #(cppn/normalize-state % 2) neighbor-values)
+        inputs (conj state-inputs
+                     (normalize-pos x (first grid-limits))
+                     (normalize-pos y (second grid-limits)))
+        outputs (cppn/evaluate-cppn cppn inputs)
+        signals (vec (take num-signals outputs))
+        sig-parser (into {} (for [[i v] (map-indexed vector signals)]
+                              [(symbol (format "S%d" i))
+                               (p/make-constant-instruction v :float)]))
+        parser  (p/make-simple-parser
+                  (merge hybrid-definitions
+                         (ev/neighbor-term-parser :bool neighbor-values)
+                         sig-parser))
+        init-state {:exec [program] :bool [] :float []}
+        final-state (p/execute-state parser init-state)]
+    (or (p/peek-stack final-state :bool) false)))
+
+;; CA step fn for position-aware hybrid
+(defn make-hybrid-position-step-fn
+  [cppn program num-signals grid-limits cell-neighbors]
+  (fn [grid]
+    (h/map-keys grid
+      (fn [cell-key]
+        (let [nbr-vals (map grid (cell-neighbors cell-key))]
+          (hybrid-nv-with-pos cppn program num-signals
+                              grid-limits cell-key nbr-vals))))))
+
 ;; last `window` errors for lexicase selection
 (defn window-errors
   [all-errors window]
@@ -165,6 +248,12 @@
     {:num-hidden-nodes     (count (filter #(= :hidden (:type %)) (vals nodes)))
      :num-connections      (count conns)
      :num-active-connections (count active)}))
+
+;; complexity metrics for a hybrid genome (CPPN complexity + program length)
+(defn hybrid-complexity
+  [hybrid-genome]
+  (merge (genome-complexity (:cppn hybrid-genome))
+         {:program-length (count (:program hybrid-genome))}))
 
 ;; PCA evolution with lexicase selection on windowed CA step errors
 (defn run-pca
@@ -278,10 +367,10 @@
         (en/assign-species population species-reps
                            compatibility-threshold c1 c3
                            next-species-id)
-        _shared (en/species-adjusted-fitness species)
-        offspring-counts (en/allocate-offspring species population-size)
-        next-gen (en/speciated-reproduce en/lexicase species offspring-counts config)
-        new-reps (into {} (for [[sid members] species
+        species' (en/species-adjusted-fitness species)
+        offspring-counts (en/allocate-offspring species' population-size)
+        next-gen (en/speciated-reproduce en/lexicase species' offspring-counts config)
+        new-reps (into {} (for [[sid members] species'
                                 :when (seq members)]
                             [sid (rand-nth members)]))]
     {:genomes         (vec next-gen)
@@ -351,11 +440,11 @@
         (en/assign-species population species-reps
                            compatibility-threshold c1 c3
                            next-species-id)
-        _shared (en/species-adjusted-fitness species)
-        offspring-counts (en/allocate-offspring species population-size)
+        species' (en/species-adjusted-fitness species)
+        offspring-counts (en/allocate-offspring species' population-size)
         next-gen (en/speciated-reproduce-with-crossover
-                   en/lexicase species offspring-counts config)
-        new-reps (into {} (for [[sid members] species
+                   en/lexicase species' offspring-counts config)
+        new-reps (into {} (for [[sid members] species'
                                 :when (seq members)]
                             [sid (rand-nth members)]))]
     {:genomes         (vec next-gen)
@@ -500,6 +589,234 @@
                  (:next-species-id spec-info)
                  history'))))))
 
+;;;; Hybrid PCA-NCA evolution loops.
+
+;; local hybrid evolution with speciated lexicase selection, no crossover
+(defn run-hybrid
+  [config run-idx]
+  (let [{:keys [init-grid cell-neighbors target-grid ca-steps fitness-window
+                population-size generation-limit num-neighbors
+                num-signals pca-program-min pca-program-max]} config
+        num-signals    (or num-signals 3)
+        error-fn       (resolve-error-fn config)
+        terms          (make-hybrid-terms num-neighbors num-signals)
+        rand-term      #(rand-nth terms)
+        rand-prog      (make-rand-program terms pca-program-min pca-program-max)
+        mutate-program (partial ev/umad rand-term)
+        eval-hybrid    (fn [{:keys [cppn program]}]
+                         (evaluate-rule init-grid cell-neighbors target-grid
+                                        (partial hybrid-nv cppn program num-signals)
+                                        ca-steps error-fn))]
+    (loop [gen             0
+           genomes         (vec (repeatedly population-size
+                              (fn [] {:cppn    (neat/make-genome num-neighbors num-signals)
+                                      :program (rand-prog)})))
+           species-reps    {}
+           next-species-id 0
+           history         []]
+      (let [evaluated (vec (pmap (fn [g]
+                                   (let [result (eval-hybrid g)
+                                         werrs  (window-errors (:errors result)
+                                                               fitness-window)]
+                                     (assoc result :genome g :window-errors werrs)))
+                                 genomes))
+            best      (apply min-key :min-error evaluated)
+            avg-raw   (h/mean (mapv :raw-min-error evaluated))
+            spec-info (eh/hybrid-speciated-generation
+                        evaluated species-reps next-species-id config
+                        mutate-program eh/speciated-reproduce-hybrid)
+            record    (merge {:generation  gen
+                              :avg-error   (float avg-raw)
+                              :best-error  (float (:raw-min-error best))
+                              :best-step   (:best-step best)
+                              :n-species   (:n-species spec-info)
+                              :best-genome (:genome best)}
+                             (hybrid-complexity (:genome best)))
+            _         (println (str "[HYBRID " run-idx "] "
+                                    (dissoc record :best-genome)))
+            history'  (conj history record)]
+        (if (or (>= gen generation-limit) (== 0.0 (:min-error best)))
+          history'
+          (recur (inc gen)
+                 (:genomes spec-info)
+                 (:species-reps spec-info)
+                 (:next-species-id spec-info)
+                 history'))))))
+
+;; local hybrid evolution with speciated lexicase selection and crossover
+(defn run-hybrid-crossover
+  [config run-idx]
+  (let [{:keys [init-grid cell-neighbors target-grid ca-steps fitness-window
+                population-size generation-limit num-neighbors
+                num-signals pca-program-min pca-program-max]} config
+        num-signals    (or num-signals 3)
+        error-fn       (resolve-error-fn config)
+        terms          (make-hybrid-terms num-neighbors num-signals)
+        rand-term      #(rand-nth terms)
+        rand-prog      (make-rand-program terms pca-program-min pca-program-max)
+        mutate-program (partial ev/umad rand-term)
+        eval-hybrid    (fn [{:keys [cppn program]}]
+                         (evaluate-rule init-grid cell-neighbors target-grid
+                                        (partial hybrid-nv cppn program num-signals)
+                                        ca-steps error-fn))]
+    (loop [gen             0
+           genomes         (vec (repeatedly population-size
+                              (fn [] {:cppn    (neat/make-genome num-neighbors num-signals)
+                                      :program (rand-prog)})))
+           species-reps    {}
+           next-species-id 0
+           history         []]
+      (let [evaluated (vec (pmap (fn [g]
+                                   (let [result (eval-hybrid g)
+                                         werrs  (window-errors (:errors result)
+                                                               fitness-window)]
+                                     (assoc result :genome g :window-errors werrs)))
+                                 genomes))
+            best      (apply min-key :min-error evaluated)
+            avg-raw   (h/mean (mapv :raw-min-error evaluated))
+            spec-info (eh/hybrid-speciated-generation
+                        evaluated species-reps next-species-id config
+                        mutate-program
+                        eh/speciated-reproduce-hybrid-with-crossover)
+            record    (merge {:generation  gen
+                              :avg-error   (float avg-raw)
+                              :best-error  (float (:raw-min-error best))
+                              :best-step   (:best-step best)
+                              :n-species   (:n-species spec-info)
+                              :best-genome (:genome best)}
+                             (hybrid-complexity (:genome best)))
+            _         (println (str "[HYBRID-X " run-idx "] "
+                                    (dissoc record :best-genome)))
+            history'  (conj history record)]
+        (if (or (>= gen generation-limit) (== 0.0 (:min-error best)))
+          history'
+          (recur (inc gen)
+                 (:genomes spec-info)
+                 (:species-reps spec-info)
+                 (:next-species-id spec-info)
+                 history'))))))
+
+;; position-aware hybrid evolution with speciated lexicase selection
+(defn run-hybrid-position
+  [config run-idx]
+  (let [{:keys [init-grid cell-neighbors target-grid grid-limits ca-steps
+                fitness-window population-size generation-limit num-neighbors
+                num-signals pca-program-min pca-program-max]} config
+        num-signals    (or num-signals 3)
+        error-fn       (resolve-error-fn config)
+        num-cppn-in    (+ num-neighbors 2)
+        terms          (make-hybrid-terms num-neighbors num-signals)
+        rand-term      #(rand-nth terms)
+        rand-prog      (make-rand-program terms pca-program-min pca-program-max)
+        mutate-program (partial ev/umad rand-term)
+        eval-hybrid    (fn [{:keys [cppn program]}]
+                         (let [step-fn (make-hybrid-position-step-fn
+                                         cppn program num-signals
+                                         grid-limits cell-neighbors)]
+                           (evaluate-rule-with-step-fn init-grid target-grid
+                                                       step-fn ca-steps error-fn)))]
+    (loop [gen             0
+           genomes         (vec (repeatedly population-size
+                              (fn [] {:cppn    (neat/make-genome num-cppn-in num-signals)
+                                      :program (rand-prog)})))
+           species-reps    {}
+           next-species-id 0
+           history         []]
+      (let [evaluated (vec (pmap (fn [g]
+                                   (let [result (eval-hybrid g)
+                                         werrs  (window-errors (:errors result)
+                                                               fitness-window)]
+                                     (assoc result :genome g :window-errors werrs)))
+                                 genomes))
+            best      (apply min-key :min-error evaluated)
+            avg-raw   (h/mean (mapv :raw-min-error evaluated))
+            spec-info (eh/hybrid-speciated-generation
+                        evaluated species-reps next-species-id config
+                        mutate-program eh/speciated-reproduce-hybrid)
+            record    (merge {:generation  gen
+                              :avg-error   (float avg-raw)
+                              :best-error  (float (:raw-min-error best))
+                              :best-step   (:best-step best)
+                              :n-species   (:n-species spec-info)
+                              :best-genome (:genome best)}
+                             (hybrid-complexity (:genome best)))
+            _         (println (str "[HYBRID-pos " run-idx "] "
+                                    (dissoc record :best-genome)))
+            history'  (conj history record)]
+        (if (or (>= gen generation-limit) (== 0.0 (:min-error best)))
+          history'
+          (recur (inc gen)
+                 (:genomes spec-info)
+                 (:species-reps spec-info)
+                 (:next-species-id spec-info)
+                 history'))))))
+
+;; position-aware hybrid evolution with speciated lexicase and crossover
+(defn run-hybrid-position-crossover
+  [config run-idx]
+  (let [{:keys [init-grid cell-neighbors target-grid grid-limits ca-steps
+                fitness-window population-size generation-limit num-neighbors
+                num-signals pca-program-min pca-program-max]} config
+        num-signals    (or num-signals 3)
+        error-fn       (resolve-error-fn config)
+        num-cppn-in    (+ num-neighbors 2)
+        terms          (make-hybrid-terms num-neighbors num-signals)
+        rand-term      #(rand-nth terms)
+        rand-prog      (make-rand-program terms pca-program-min pca-program-max)
+        mutate-program (partial ev/umad rand-term)
+        eval-hybrid    (fn [{:keys [cppn program]}]
+                         (let [step-fn (make-hybrid-position-step-fn
+                                         cppn program num-signals
+                                         grid-limits cell-neighbors)]
+                           (evaluate-rule-with-step-fn init-grid target-grid
+                                                       step-fn ca-steps error-fn)))]
+    (loop [gen             0
+           genomes         (vec (repeatedly population-size
+                              (fn [] {:cppn    (neat/make-genome num-cppn-in num-signals)
+                                      :program (rand-prog)})))
+           species-reps    {}
+           next-species-id 0
+           history         []]
+      (let [evaluated (vec (pmap (fn [g]
+                                   (let [result (eval-hybrid g)
+                                         werrs  (window-errors (:errors result)
+                                                               fitness-window)]
+                                     (assoc result :genome g :window-errors werrs)))
+                                 genomes))
+            best      (apply min-key :min-error evaluated)
+            avg-raw   (h/mean (mapv :raw-min-error evaluated))
+            spec-info (eh/hybrid-speciated-generation
+                        evaluated species-reps next-species-id config
+                        mutate-program
+                        eh/speciated-reproduce-hybrid-with-crossover)
+            record    (merge {:generation  gen
+                              :avg-error   (float avg-raw)
+                              :best-error  (float (:raw-min-error best))
+                              :best-step   (:best-step best)
+                              :n-species   (:n-species spec-info)
+                              :best-genome (:genome best)}
+                             (hybrid-complexity (:genome best)))
+            _         (println (str "[HYBRID-pos-X " run-idx "] "
+                                    (dissoc record :best-genome)))
+            history'  (conj history record)]
+        (if (or (>= gen generation-limit) (== 0.0 (:min-error best)))
+          history'
+          (recur (inc gen)
+                 (:genomes spec-info)
+                 (:species-reps spec-info)
+                 (:next-species-id spec-info)
+                 history'))))))
+
+;; extract the best rule from a single run's history
+(defn- best-rule-from-run
+  [run-history]
+  (let [best (apply min-key :best-error run-history)]
+    (merge {:error      (:best-error best)
+            :generation (:generation best)
+            :step       (:best-step best)}
+           (when-let [prog (:best-program best)] {:best-program prog})
+           (when-let [geno (:best-genome best)]  {:best-genome geno}))))
+
 ;; save multi-condition experiment results to EDN
 (defn save-results!
   [experiment-name base-config conditions filename]
@@ -508,6 +825,7 @@
                        (let [all (apply concat runs)
                              best (apply min-key :best-error all)]
                          {:runs         (mapv #(mapv strip %) runs)
+                          :best-rules   (mapv best-rule-from-run runs)
                           :best-overall {:error      (:best-error best)
                                          :generation (:generation best)
                                          :step       (:best-step best)}}))]

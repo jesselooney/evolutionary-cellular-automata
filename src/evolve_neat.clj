@@ -63,13 +63,13 @@
 
 (defn species-adjusted-fitness
   "Apply fitness sharing: divide each member's fitness by species size.
-   Returns the population with :adjusted-fitness set."
+   Returns the species map with :adjusted-fitness set on each member."
   [species-map]
-  (mapcat (fn [[_sid members]]
-            (let [n (double (count members))]
-              (map #(assoc % :adjusted-fitness (/ (or (:fitness %) 0.0) n))
-                   members)))
-          species-map))
+  (into {} (map (fn [[sid members]]
+                  (let [n (double (count members))]
+                    [sid (mapv #(assoc % :adjusted-fitness (/ (or (:fitness %) 0.0) n))
+                               members)]))
+                species-map)))
 
 (defn allocate-offspring
   "Compute how many offspring each species gets, proportional to total

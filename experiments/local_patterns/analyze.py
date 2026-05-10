@@ -13,8 +13,8 @@ RESULTS_DIR = Path(__file__).parent / "results"
 DEFAULT_PATH = RESULTS_DIR / "local_patterns_results.edn"
 
 
+# convergence subplot grid per pattern
 def plot_convergence_grid(conditions, out_path):
-    """Subplot grid: error convergence curves per pattern."""
     n = len(conditions)
     ncols = 3
     nrows = (n + ncols - 1) // ncols
@@ -53,8 +53,8 @@ def plot_convergence_grid(conditions, out_path):
     plt.close(fig)
 
 
+# per-seed final best-error strip plot
 def plot_final_strip(conditions, out_path):
-    """Strip plot: per-seed final best-error scattered by pattern and method."""
     names = [c["name"] for c in conditions]
     method_keys = ac.get_method_keys(conditions[0])
     n_methods = len(method_keys)
@@ -92,8 +92,8 @@ def plot_final_strip(conditions, out_path):
     plt.close(fig)
 
 
+# per-pattern convergence with std band
 def plot_individual_patterns(conditions, out_dir):
-    """One plot per pattern: best-error convergence with std band."""
     for cond in conditions:
         name = cond["name"]
         method_arrays = ac.extract_method_arrays(cond)
@@ -124,18 +124,18 @@ def plot_individual_patterns(conditions, out_dir):
         plt.close(fig)
 
 
+# final-generation complexity per run
 def extract_final_complexity(runs, method):
-    """Extract final-generation complexity from each run.
-
-    PCA records: program-length
-    NCA records: num-hidden-nodes, num-connections, num-active-connections
-
-    Returns a dict of {metric_name: np.array of per-run values}.
-    """
     result = {}
     if method == "pca":
         vals = [run[-1].get("program-length", 0) for run in runs]
         result["program-length"] = np.array(vals, dtype=float)
+    elif method == "hybrid":
+        vals = [run[-1].get("program-length", 0) for run in runs]
+        result["program-length"] = np.array(vals, dtype=float)
+        for key in ("num-hidden-nodes", "num-connections", "num-active-connections"):
+            vals = [run[-1].get(key, 0) for run in runs]
+            result[key] = np.array(vals, dtype=float)
     else:
         for key in ("num-hidden-nodes", "num-connections", "num-active-connections"):
             vals = [run[-1].get(key, 0) for run in runs]
@@ -144,12 +144,16 @@ def extract_final_complexity(runs, method):
 
 
 def print_complexity_table(conditions):
-    """Print a table comparing final solution complexity across patterns."""
+    has_hybrid = any("hybrid" in c for c in conditions)
+    w = 130 if has_hybrid else 90
     print("\nSOLUTION COMPLEXITY (final generation, mean +/- std)")
-    print("=" * 90)
-    print(f"{'Pattern':<22} {'PCA prog-len':>14} "
-          f"{'NCA hidden':>12} {'NCA conns':>12} {'NCA active':>12}")
-    print("-" * 90)
+    print("=" * w)
+    header = (f"{'Pattern':<22} {'PCA prog-len':>14} "
+              f"{'NCA hidden':>12} {'NCA conns':>12} {'NCA active':>12}")
+    if has_hybrid:
+        header += f" {'HyCA prog':>12} {'HyCA conns':>12}"
+    print(header)
+    print("-" * w)
 
     for cond in conditions:
         name = cond["name"]
@@ -170,17 +174,30 @@ def print_complexity_table(conditions):
         else:
             row += f"{'--':>12}" * 3
 
+        if has_hybrid:
+            if "hybrid" in cond:
+                hyb_c = extract_final_complexity(cond["hybrid"]["runs"], "hybrid")
+                pl = hyb_c["program-length"]
+                ac_ = hyb_c["num-active-connections"]
+                row += f"  {pl.mean():>5.1f}+/-{pl.std():>4.1f}"
+                row += f"  {ac_.mean():>5.1f}+/-{ac_.std():>4.1f}"
+            else:
+                row += f"{'--':>12}" * 2
+
         print(row)
     print()
 
 
+# bar chart of solution complexity across methods
 def plot_complexity_comparison(conditions, out_path):
-    """Bar chart comparing final solution complexity: PCA program length vs NCA active connections."""
     names = [c["name"] for c in conditions]
     n = len(names)
+    has_hybrid = any("hybrid" in c for c in conditions)
 
     pca_means, pca_stds = [], []
     nca_means, nca_stds = [], []
+    hyb_prog_means, hyb_prog_stds = [], []
+    hyb_conn_means, hyb_conn_stds = [], []
 
     for cond in conditions:
         if "pca" in cond:
@@ -199,20 +216,44 @@ def plot_complexity_comparison(conditions, out_path):
             nca_means.append(0)
             nca_stds.append(0)
 
+        if has_hybrid:
+            if "hybrid" in cond:
+                hyb_c = extract_final_complexity(cond["hybrid"]["runs"], "hybrid")
+                pl = hyb_c["program-length"]
+                ac_ = hyb_c["num-active-connections"]
+                hyb_prog_means.append(pl.mean())
+                hyb_prog_stds.append(pl.std())
+                hyb_conn_means.append(ac_.mean())
+                hyb_conn_stds.append(ac_.std())
+            else:
+                hyb_prog_means.append(0)
+                hyb_prog_stds.append(0)
+                hyb_conn_means.append(0)
+                hyb_conn_stds.append(0)
+
     x = np.arange(n)
-    width = 0.35
+    n_bars = 4 if has_hybrid else 2
+    width = 0.8 / n_bars
     fig, ax = plt.subplots(figsize=(max(8, n * 1.5), 5))
 
-    ax.bar(x - width / 2, pca_means, width, yerr=pca_stds,
-           label="PCA program length", color="tab:blue", alpha=0.8, capsize=3)
-    ax.bar(x + width / 2, nca_means, width, yerr=nca_stds,
-           label="NCA active connections", color="tab:orange", alpha=0.8, capsize=3)
+    offsets = np.arange(n_bars) - (n_bars - 1) / 2
+    ax.bar(x + offsets[0] * width, pca_means, width, yerr=pca_stds,
+           label="PCA program length", color="tab:orange", alpha=0.8, capsize=3)
+    ax.bar(x + offsets[1] * width, nca_means, width, yerr=nca_stds,
+           label="NCA active connections", color="tab:blue", alpha=0.8, capsize=3)
+
+    if has_hybrid:
+        ax.bar(x + offsets[2] * width, hyb_prog_means, width, yerr=hyb_prog_stds,
+               label="HyCA program length", color="tab:green", alpha=0.6, capsize=3)
+        ax.bar(x + offsets[3] * width, hyb_conn_means, width, yerr=hyb_conn_stds,
+               label="HyCA active connections", color="tab:green", alpha=0.9, capsize=3,
+               hatch="//")
 
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right")
     ax.set_ylabel("Solution Size")
-    ax.set_title("Solution Complexity: PCA Program Length vs NCA Active Connections")
-    ax.legend()
+    ax.set_title("Solution Complexity by Method")
+    ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3, axis="y")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -220,15 +261,8 @@ def plot_complexity_comparison(conditions, out_path):
     plt.close(fig)
 
 
+# per-run summary stats
 def summarize_runs(runs):
-    """Compute per-run summary stats from raw run histories.
-
-    Returns a list of dicts, one per run, with:
-      best_error:  overall minimum best-error across all generations
-      best_gen:    generation where that minimum was first reached
-      final_error: best-error in the last generation
-      n_gens:      total generations run (may be < limit if solved early)
-    """
     summaries = []
     for run in runs:
         errors = [rec["best-error"] for rec in run]
@@ -244,7 +278,6 @@ def summarize_runs(runs):
 
 
 def print_performance_table(conditions):
-    """Print a detailed per-method table: best error, gen to best, solved rate, complexity."""
     method_keys = ac.get_method_keys(conditions[0])
 
     for mk in method_keys:
@@ -267,7 +300,6 @@ def print_performance_table(conditions):
             final_errs = np.array([s["final_error"] for s in stats])
             n_solved = sum(1 for s in stats if s["best_error"] < 0.05)
 
-            # Gen-to-best breakdown
             n_gen0 = sum(1 for g in best_gens if g == 0)
             non_zero_gens = best_gens[best_gens > 0]
 
@@ -279,10 +311,12 @@ def print_performance_table(conditions):
             if n_gen0 > 0:
                 gen_str += f" ({n_gen0}@g0)"
 
-            # Complexity
             cplx = extract_final_complexity(runs, mk)
             if mk == "pca":
                 cplx_str = f"{cplx['program-length'].mean():.1f} instr"
+            elif mk == "hybrid":
+                cplx_str = (f"{cplx['program-length'].mean():.1f}i+"
+                            f"{cplx['num-active-connections'].mean():.1f}c")
             else:
                 cplx_str = f"{cplx['num-active-connections'].mean():.1f} conns"
 
@@ -299,7 +333,6 @@ def print_performance_table(conditions):
 
 
 def print_success_rates(conditions):
-    """Print fraction of runs reaching error < 0.05 per pattern per method."""
     print("\nSUCCESS RATES (error < 0.05)")
     print("-" * 50)
     method_keys = ac.get_method_keys(conditions[0])

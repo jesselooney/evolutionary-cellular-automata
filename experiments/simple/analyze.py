@@ -7,22 +7,17 @@ import edn_format
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Load EDN
-# ---------------------------------------------------------------------------
-
 RESULTS_PATH = Path(__file__).parent / "stripe_comparison_results.edn"
 
 
 def load_results(path=RESULTS_PATH):
     with open(path) as f:
         raw = edn_format.loads(f.read())
-    # edn_format returns Keyword keys — convert to plain strings
     return _convert(raw)
 
 
+# convert edn_format types to plain Python
 def _convert(obj):
-    """Recursively convert edn_format types to plain Python types."""
     if isinstance(obj, edn_format.Keyword):
         return obj.name
     if isinstance(obj, edn_format.Symbol):
@@ -34,20 +29,8 @@ def _convert(obj):
     return obj
 
 
-# ---------------------------------------------------------------------------
-# Extract per-generation arrays
-# ---------------------------------------------------------------------------
-
-
+# list-of-runs -> numpy arrays
 def runs_to_arrays(runs):
-    """Convert list-of-runs into per-generation numpy arrays.
-
-    Returns:
-        gens: 1-d array of generation indices (length = max gen across runs)
-        avg_errors:  (n_runs, n_gens) — population avg error per gen
-        best_errors: (n_runs, n_gens) — best individual error per gen
-        best_steps:  (n_runs, n_gens) — CA step of best individual per gen
-    """
     n_runs = len(runs)
     max_len = max(len(r) for r in runs)
 
@@ -60,7 +43,6 @@ def runs_to_arrays(runs):
             avg_errors[i, j] = rec["avg-error"]
             best_errors[i, j] = rec["best-error"]
             best_steps[i, j] = rec["best-step"]
-        # Pad shorter runs with their final values
         if len(run) < max_len:
             avg_errors[i, len(run):] = avg_errors[i, len(run) - 1]
             best_errors[i, len(run):] = best_errors[i, len(run) - 1]
@@ -70,13 +52,8 @@ def runs_to_arrays(runs):
     return gens, avg_errors, best_errors, best_steps
 
 
-# ---------------------------------------------------------------------------
-# Plotting
-# ---------------------------------------------------------------------------
-
-
+# best-error and avg-error convergence curves
 def plot_error_curves(gens, pca_best, nca_best, pca_avg, nca_avg, out_path):
-    """Best-error and avg-error over generations, mean +/- std across runs."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
     for ax, pca, nca, title in [
@@ -104,8 +81,8 @@ def plot_error_curves(gens, pca_best, nca_best, pca_avg, nca_avg, out_path):
     plt.close(fig)
 
 
+# CA step of best individual over generations
 def plot_best_step(gens, pca_steps, nca_steps, out_path):
-    """CA step at which best individual peaks, over generations."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for data, label, color in [
@@ -129,7 +106,6 @@ def plot_best_step(gens, pca_steps, nca_steps, out_path):
 
 
 def print_summary(data, pca_best, nca_best, pca_steps, nca_steps):
-    """Print a compact summary table."""
     cfg = data["config"]
     n_runs = len(data["pca"]["runs"])
 
@@ -156,7 +132,6 @@ def print_summary(data, pca_best, nca_best, pca_steps, nca_steps):
         print(f"    Final best-step:   {final_step.mean():.1f} +/- {final_step.std():.1f}")
         print(f"    Overall best:      {overall['error']} (gen {overall['generation']}, step {overall['step']})")
 
-        # Generations to reach threshold
         for thresh in [0.4, 0.3, 0.2, 0.1]:
             reached = []
             for run in best:
@@ -172,11 +147,6 @@ def print_summary(data, pca_best, nca_best, pca_steps, nca_steps):
     print("=" * 55)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
 def main():
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else RESULTS_PATH
     data = load_results(path)
@@ -184,7 +154,7 @@ def main():
     pca_gens, pca_avg, pca_best, pca_steps = runs_to_arrays(data["pca"]["runs"])
     nca_gens, nca_avg, nca_best, nca_steps = runs_to_arrays(data["nca"]["runs"])
 
-    # Pad both to the longer generation range (runs may converge at different speeds)
+    # pad to longer generation range
     max_len = max(len(pca_gens), len(nca_gens))
     gens = np.arange(max_len)
 
@@ -198,7 +168,7 @@ def main():
     nca_avg, nca_best, nca_steps = pad_to(nca_avg, max_len), pad_to(nca_best, max_len), pad_to(nca_steps, max_len)
 
     out_dir = path.parent
-    stem = path.stem.removesuffix("_results")  # e.g. "checkerboard_comparison"
+    stem = path.stem.removesuffix("_results")
     plot_error_curves(gens, pca_best, nca_best, pca_avg, nca_avg,
                        out_dir / f"{stem}_error_curves.png")
     plot_best_step(gens, pca_steps, nca_steps,
