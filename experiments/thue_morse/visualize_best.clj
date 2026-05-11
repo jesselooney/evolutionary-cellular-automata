@@ -1,4 +1,4 @@
-(ns complex-patterns.visualize-best
+(ns thue-morse.visualize-best
   "Load best evolved rules from results, simulate CA growth, and render
    a 3xN comparison grid showing snapshots at key timesteps."
   (:require [cellular-automata :as ca]
@@ -14,7 +14,7 @@
 ;; ─── Data loading ─────────────────────────────────────────────────
 
 (def results
-  (edn/read-string (slurp "experiments/complex_patterns/results/complex_patterns_results.edn")))
+  (edn/read-string (slurp "experiments/thue_morse/results/thue_morse_results.edn")))
 
 (def condition (first (:conditions results)))
 
@@ -24,7 +24,9 @@
 
 (def num-signals 4)
 
-(def target-fn (fn [[x y] _ _] (zero? (bit-and x y))))
+(def target-fn (fn [[x y] _ _]
+                 (even? (+ (Integer/bitCount x)
+                           (Integer/bitCount y)))))
 (def target-grid (er/make-target-grid grid-limits target-fn))
 
 (def pca-rule    (first (get-in condition [:pca :best-rules])))
@@ -52,7 +54,6 @@
           (er/hybrid-nv (:cppn genome) (:program genome)
                         num-signals nbr-vals))))))
 
-;; AI helped with the following so we can include images 
 ;; ─── Snapshot collection ──────────────────────────────────────────
 
 (def snapshot-steps [5 10 20 31 50])
@@ -130,7 +131,7 @@
     ;; title
     (.setColor g Color/BLACK)
     (.setFont g (Font. "SansSerif" Font/BOLD 18))
-    (let [title "Sierpinski Triangle — CA Growth Comparison (30x30)"
+    (let [title "Thue-Morse 2D — CA Growth Comparison (30x30)"
           fm    (.getFontMetrics g)
           tw    (.stringWidth fm title)]
       (.drawString g ^String title (int (/ (- total-w tw) 2)) 30))
@@ -200,6 +201,6 @@
   [{:label "PCA (Push)" :snapshots pca-snaps}
    {:label "NCA (NEAT)" :snapshots nca-snaps}
    {:label "HyCA"       :snapshots hybrid-snaps}]
-  "experiments/complex_patterns/results")
+  "experiments/thue_morse/results")
 
 (println "Done!")

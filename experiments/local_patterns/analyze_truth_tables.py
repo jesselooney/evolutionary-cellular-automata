@@ -1,7 +1,7 @@
 """Analyze evolved CA truth tables across patterns and approaches."""
 
 import sys
-from itertools import combinations, permutations
+from itertools import combinations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -74,21 +74,6 @@ def input_influence(inputs, output):
         influences[i] = flips / pairs if pairs > 0 else 0.0
 
     return influences
-
-
-# check if rule is invariant under N1-N4 permutations
-def is_neighbor_symmetric(inputs, output):
-    lookup = {}
-    for row_in, row_out in zip(inputs, output):
-        lookup[tuple(row_in)] = row_out
-
-    for perm in permutations(range(1, 5)):
-        col_order = [0] + list(perm)
-        for row_in, row_out in zip(inputs, output):
-            permuted = tuple(row_in[col_order])
-            if lookup.get(permuted, row_out) != row_out:
-                return False
-    return True
 
 
 # fraction of 32 output bits identical across all runs
@@ -303,114 +288,12 @@ def plot_unique_rules(patterns, outputs, out_path):
     save_fig(fig, out_path)
 
 
-def print_lambda_table(patterns, outputs):
-    print("\nLANGTON'S LAMBDA (output density)")
-    print("=" * 75)
-    header = f"{'Pattern':<22}" + "".join(
-        f"{ac.METHOD_LABELS.get(m, m):>17}" for m in METHODS)
-    print(header)
-    print("-" * 75)
-
-    for pat in patterns:
-        row = f"{pat:<22}"
-        for mk in METHODS:
-            if mk in outputs[pat]:
-                lambdas = [langton_lambda(o) for o in outputs[pat][mk]]
-                row += f"{np.mean(lambdas):>8.3f}+/-{np.std(lambdas):<6.3f}"
-            else:
-                row += f"{'--':>17}"
-        print(row)
-    print()
-
-
-def print_influence_table(patterns, full):
-    print("\nINPUT INFLUENCE (mean across runs)")
-    for mk in METHODS:
-        label = ac.METHOD_LABELS.get(mk, mk)
-        print(f"\n  [{label}]")
-        print(f"  {'Pattern':<22}" + "".join(f"{n:>8}" for n in INPUT_NAMES))
-        print(f"  {'-' * 62}")
-        for pat in patterns:
-            if mk not in full[pat]:
-                continue
-            influences = []
-            for inp, out in full[pat][mk]:
-                influences.append(input_influence(inp, out))
-            mean_inf = np.mean(influences, axis=0)
-            row = f"  {pat:<22}" + "".join(f"{v:>8.3f}" for v in mean_inf)
-            print(row)
-    print()
-
-
-def print_symmetry_table(patterns, full):
-    print("\nNEIGHBOR SYMMETRY (N1-N4 permutation invariance)")
-    print("=" * 65)
-    header = f"{'Pattern':<22}" + "".join(
-        f"{ac.METHOD_LABELS.get(m, m):>14}" for m in METHODS)
-    print(header)
-    print("-" * 65)
-
-    for pat in patterns:
-        row = f"{pat:<22}"
-        for mk in METHODS:
-            if mk in full[pat]:
-                n_sym = sum(1 for inp, out in full[pat][mk]
-                            if is_neighbor_symmetric(inp, out))
-                n_total = len(full[pat][mk])
-                frac = f"{n_sym}/{n_total}"
-                row += f"{frac:>14}"
-            else:
-                row += f"{'--':>14}"
-        print(row)
-    print()
-
-
-def print_agreement_table(patterns, outputs):
-    print("\nINTER-RUN AGREEMENT (fraction of 32 bits identical across all runs)")
-    print("=" * 65)
-    header = f"{'Pattern':<22}" + "".join(
-        f"{ac.METHOD_LABELS.get(m, m):>14}" for m in METHODS)
-    print(header)
-    print("-" * 65)
-
-    for pat in patterns:
-        row = f"{pat:<22}"
-        for mk in METHODS:
-            if mk in outputs[pat]:
-                agree = inter_run_agreement(outputs[pat][mk])
-                row += f"{agree:>14.3f}"
-            else:
-                row += f"{'--':>14}"
-        print(row)
-    print()
-
-
-def print_unique_table(patterns, outputs):
-    print("\nUNIQUE TRUTH TABLES (out of 10 runs)")
-    print("=" * 65)
-    header = f"{'Pattern':<22}" + "".join(
-        f"{ac.METHOD_LABELS.get(m, m):>14}" for m in METHODS)
-    print(header)
-    print("-" * 65)
-
-    for pat in patterns:
-        row = f"{pat:<22}"
-        for mk in METHODS:
-            if mk in outputs[pat]:
-                row += f"{n_unique_tables(outputs[pat][mk]):>14}"
-            else:
-                row += f"{'--':>14}"
-        print(row)
-    print()
-
-
 def main():
     base_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else TRUTH_TABLES_DIR
     patterns, outputs, full = load_all(base_dir)
+    # match the six patterns used in the main local_patterns analysis
+    patterns = [p for p in patterns if p != "diagonal-bands"]
     out_dir = Path(base_dir)
-
-    print(f"Loaded truth tables for {len(patterns)} patterns, "
-          f"{len(METHODS)} methods")
 
     plot_lambda(patterns, outputs, out_dir / "lambda_comparison")
     plot_influence(patterns, full, out_dir / "input_influence")
@@ -418,12 +301,6 @@ def main():
     plot_cross_approach_hamming(patterns, outputs,
                                 out_dir / "cross_approach_hamming")
     plot_unique_rules(patterns, outputs, out_dir / "unique_rules")
-
-    print_lambda_table(patterns, outputs)
-    print_influence_table(patterns, full)
-    print_symmetry_table(patterns, full)
-    print_agreement_table(patterns, outputs)
-    print_unique_table(patterns, outputs)
 
 
 if __name__ == "__main__":

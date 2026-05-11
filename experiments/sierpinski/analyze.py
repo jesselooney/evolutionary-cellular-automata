@@ -43,51 +43,12 @@ def plot_convergence(conditions, out_path):
         plt.close(fig)
 
 
-def print_summary_table(conditions):
-    print("\nCOMPLEX PATTERNS — SINGLE-RUN RESULTS")
-    print("=" * 95)
-    print(f"  {'Pattern':<22} {'Method':<12} {'Best Err':>10} {'Best Gen':>10} "
-          f"{'Best Step':>10} {'Final Err':>10} {'Complexity':>16}")
-    print(f"  {'-' * 90}")
-
-    for cond in conditions:
-        name = cond["name"]
-        method_keys = ac.get_method_keys(cond)
-
-        for mk in method_keys:
-            runs = cond[mk]["runs"]
-            run = runs[0]
-            label = ac.METHOD_LABELS.get(mk, mk)
-
-            errors = [rec["best-error"] for rec in run]
-            best_err = min(errors)
-            best_gen = errors.index(best_err)
-            best_step = run[best_gen]["best-step"]
-            final_err = errors[-1]
-
-            last = run[-1]
-            if mk == "pca":
-                cplx = f"{last.get('program-length', '?')} instr"
-            elif mk == "hybrid":
-                cplx = (f"{last.get('program-length', '?')}i+"
-                        f"{last.get('num-active-connections', '?')}c")
-            else:
-                cplx = f"{last.get('num-active-connections', '?')} conns"
-
-            print(f"  {name:<22} {label:<12} {best_err:>10.4f} {best_gen:>10} "
-                  f"{best_step:>10} {final_err:>10.4f} {cplx:>16}")
-
-    print()
-
-
 def main():
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PATH
     data = ac.load_edn(path)
     conditions = data["conditions"]
 
     plot_convergence(conditions, RESULTS_DIR / "convergence.png")
-    print_summary_table(conditions)
-    ac.print_experiment_summary(data)
 
 
 if __name__ == "__main__":

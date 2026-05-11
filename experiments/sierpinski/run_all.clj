@@ -1,4 +1,4 @@
-(ns complex-patterns
+(ns sierpinski
   (:require [cellular-automata :as ca]
             [experiment-runner :as er]))
 
@@ -39,9 +39,9 @@
             :cell-neighbors  (partial ca/von-neumann-neighbors 1 grid-limits)})))
 
 (def results-file
-  "experiments/complex_patterns/results/complex_patterns_results.edn")
+  "experiments/sierpinski/results/sierpinski_results.edn")
 
-;; PCA vs NCA vs Hybrid on complex fractal patterns
+;; PCA vs NCA vs Hybrid on Sierpinski triangle
 (defn run-experiment!
   ([] (run-experiment! (:n-runs base-config)))
   ([n-runs]
@@ -58,7 +58,7 @@
                          :hybrid er/run-hybrid-crossover}
                         n-runs)
              completed' (conj completed condition)]
-         (er/save-results! "complex-patterns" base-config completed'
+         (er/save-results! "sierpinski" base-config completed'
                            results-file)
          (recur (rest remaining) completed'))))))
 
