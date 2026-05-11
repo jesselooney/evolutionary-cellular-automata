@@ -39,16 +39,3 @@ Standalone runnable examples demonstrating specific patterns.
 
 ### `scratch/`
 Development and prototyping code for Push-based CA experiments.
-
-### `evolved-img-vids/`
-Generated images and videos of evolved CA behavior.
-
-## Dependencies
-
-- [Clojure](https://clojure.org/) with `deps.edn`
-- [Quil](http://quil.info/) 4.3.1563 for visualization
-- Python 3 with matplotlib for experiment analysis
-
-## Authors
-
-Henry LeCates, Jesse Looney, Paolo Canigiula, Michael Allers — Amherst College
